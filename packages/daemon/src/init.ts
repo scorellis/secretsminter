@@ -54,6 +54,8 @@ export interface DirPaths {
   readonly approvals: string;
   readonly state: string;
   readonly audit: string;
+  /** The daemon `.env` (`--env-file` target): SECRETSMINTER_* paths + operator-added provider creds. */
+  readonly env: string;
 }
 
 export function dirPaths(dir: string): DirPaths {
@@ -65,6 +67,7 @@ export function dirPaths(dir: string): DirPaths {
     approvals: join(dir, "approvals.json"),
     state: join(dir, "state.json"),
     audit: join(dir, "audit.log"),
+    env: join(dir, ".env"),
   };
 }
 
@@ -81,13 +84,77 @@ export interface InitResult {
   readonly envExports: readonly string[];
   /** Human next-steps guidance. */
   readonly nextSteps: readonly string[];
+  /** The daemon `.env` path (`--env-file` target) init wrote/updated with the SECRETSMINTER_* paths. */
+  readonly envFile: string;
+  /** Ready-to-paste `claude mcp add …` one-liner (points `--env-file` at {@link envFile}). */
+  readonly mcpAddLine: string;
+  /** A generic `.mcp.json` snippet (command/args/env) an MCP client can paste in. */
+  readonly mcpJsonSnippet: string;
+}
+
+/** The SECRETSMINTER_* KEY=VALUE lines that fully configure the daemon from a `.env` (no secrets). */
+function envConfigLines(p: DirPaths): readonly string[] {
+  return [
+    `SECRETSMINTER_MANIFEST=${p.manifest}`,
+    `SECRETSMINTER_MANIFEST_SIG=${p.sig}`,
+    `SECRETSMINTER_MANIFEST_PUBKEY=${p.pub}`,
+    `SECRETSMINTER_APPROVALS=${p.approvals}`,
+    `SECRETSMINTER_STATE=${p.state}`,
+    `SECRETSMINTER_AUDIT_LOG=${p.audit}`,
+  ];
+}
+
+/** The keys already defined in an existing `.env` body (so we only append what is missing). */
+function existingEnvKeys(text: string): Set<string> {
+  const keys = new Set<string>();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length === 0 || line.startsWith("#")) continue;
+    const m = /^([A-Z0-9_]+)\s*=/.exec(line);
+    if (m) keys.add(m[1] as string);
+  }
+  return keys;
+}
+
+/**
+ * Write the daemon `.env` so `--env-file <dir>/.env` fully configures the daemon. If the file does
+ * not exist, create it (with a header telling the operator to add provider bootstraps here). If it
+ * already exists, NEVER overwrite it — append only the SECRETSMINTER_* lines whose key is missing, so
+ * an operator's provider creds are preserved.
+ */
+function writeEnvFile(fs: SetupFs, p: DirPaths): void {
+  const lines = envConfigLines(p);
+  const existing = fs.readFile(p.env);
+  if (existing === null) {
+    const header =
+      "# secretsminter daemon config (secretsminter --env-file <this file>).\n" +
+      "# Add your provider bootstraps below (e.g. SECRETSMINTER_CF_ACCOUNT_ID=..., SECRETSMINTER_CF_PAGES_TOKEN=...).\n" +
+      "# Keep this file OUT of git — it holds provider credentials.\n\n";
+    fs.writeFile(p.env, header + lines.join("\n") + "\n");
+    return;
+  }
+  const have = existingEnvKeys(existing);
+  const missing = lines.filter((l) => {
+    const k = /^([A-Z0-9_]+)=/.exec(l)?.[1];
+    return k !== undefined && !have.has(k);
+  });
+  if (missing.length === 0) return;
+  const sep = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+  fs.writeFile(p.env, existing + sep + missing.join("\n") + "\n");
 }
 
 /**
  * Scaffold an operator config dir. Refuses to overwrite an existing signing key (a crown jewel).
  * Self-verifies the freshly-signed manifest before returning, so a bad write fails loudly.
  */
-export function runInit(fs: SetupFs, dir: string): InitResult {
+export function runInit(
+  fs: SetupFs,
+  dir: string,
+  serve: { readonly command: string; readonly baseArgs: readonly string[] } = {
+    command: "secretsminter",
+    baseArgs: [],
+  },
+): InitResult {
   const p = dirPaths(dir);
 
   // 1. Create the dir (recursive, idempotent).
@@ -123,6 +190,36 @@ export function runInit(fs: SetupFs, dir: string): InitResult {
   // Self-check: the scaffold must verify immediately.
   verifyAndLoadManifest(json, sig, pubPem);
 
+  // Write (or top up) the daemon `.env` so `--env-file <dir>/.env` fully configures the daemon.
+  writeEnvFile(fs, p);
+
+  // The command an MCP client launches to SERVE. Default assumes a global `secretsminter` bin, but
+  // `cli.ts` passes `node <abs cli.js>` so a fresh `git clone` works with NO global install — the #1
+  // reason MCP servers "won't connect" is a command that isn't on the client's PATH.
+  const quote = (s: string): string => (/\s/.test(s) ? `"${s}"` : s);
+  const serveArgs = [...serve.baseArgs, "--env-file", p.env];
+  const mcpAddLine = `claude mcp add secretsminter -- ${quote(serve.command)} ${serveArgs.map(quote).join(" ")}`;
+  const mcpJsonSnippet = JSON.stringify(
+    {
+      mcpServers: {
+        secretsminter: {
+          command: serve.command,
+          args: serveArgs,
+          env: {
+            SECRETSMINTER_MANIFEST: p.manifest,
+            SECRETSMINTER_MANIFEST_SIG: p.sig,
+            SECRETSMINTER_MANIFEST_PUBKEY: p.pub,
+            SECRETSMINTER_APPROVALS: p.approvals,
+            SECRETSMINTER_STATE: p.state,
+            SECRETSMINTER_AUDIT_LOG: p.audit,
+          },
+        },
+      },
+    },
+    null,
+    2,
+  );
+
   const envExports = [
     `export SECRETSMINTER_MANIFEST=${p.manifest}`,
     `export SECRETSMINTER_MANIFEST_SIG=${p.sig}`,
@@ -132,10 +229,11 @@ export function runInit(fs: SetupFs, dir: string): InitResult {
     `export SECRETSMINTER_AUDIT_LOG=${p.audit}`,
   ];
   const nextSteps = [
-    `Keep ${p.key} OUT of git — it is the signing key (the trust root).`,
+    `Keep ${p.key} (the signing key / trust root) and ${p.env} (provider creds) OUT of git.`,
     `Add a destination:  secretsminter allow --store <id> [--repo owner/name] [--project p] [--env e] [--name <pattern>]${dir === DEFAULT_DIR ? "" : ` --dir ${dir}`}`,
-    `Provide provider bootstraps via SECRETSMINTER_* env (never in chat/logs).`,
-    `Register the MCP server (run 'secretsminter' with the env above exported).`,
+    `Add provider bootstraps (e.g. SECRETSMINTER_CF_ACCOUNT_ID=...) to ${p.env} — the SECRETSMINTER_* paths are already there.`,
+    `Register the MCP server with the 'claude mcp add' line above (or the .mcp.json snippet), then RELOAD the client.`,
+    `Mutating tools (mint_and_place) require an out-of-band approval to be armed first.`,
   ];
 
   return {
@@ -143,6 +241,9 @@ export function runInit(fs: SetupFs, dir: string): InitResult {
     written: [p.key, p.pub, p.manifest, p.sig, p.approvals],
     envExports,
     nextSteps,
+    envFile: p.env,
+    mcpAddLine,
+    mcpJsonSnippet,
   };
 }
 

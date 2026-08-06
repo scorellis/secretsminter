@@ -13,9 +13,11 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { serveStdio } from "@secretsminter/mcp";
 import { buildBroker } from "./build.js";
 import { configFromEnv } from "./config.js";
+import { loadEnvFile } from "./env.js";
 import {
   parseAllowArgs,
   parseInitArgs,
@@ -40,11 +42,25 @@ const realFs: SetupFs = {
 
 function runInitCommand(argv: readonly string[]): void {
   const { dir } = parseInitArgs(argv);
-  const result = runInit(realFs, dir);
+  // Resolve to an absolute dir so the emitted registration (below) is copy-paste-portable regardless
+  // of the operator's cwd when the MCP client later launches the daemon.
+  // Emit a serve command the client can actually resolve from a fresh clone (no global install needed):
+  // `node <abs path to this very cli.js>`. Mirrors how the operator just successfully ran init.
+  const result = runInit(realFs, resolve(dir), {
+    command: "node",
+    baseArgs: [resolve(process.argv[1] ?? "")],
+  });
   process.stderr.write(`secretsminter: initialized ${result.dir}\n`);
-  process.stderr.write(`  wrote: ${result.written.join(", ")}\n\n`);
+  process.stderr.write(`  wrote: ${result.written.join(", ")}\n`);
+  process.stderr.write(`  env file: ${result.envFile} (SECRETSMINTER_* paths written; add provider bootstraps here)\n\n`);
   process.stderr.write(`Export these (env → ${result.dir}):\n`);
   for (const line of result.envExports) process.stderr.write(`  ${line}\n`);
+
+  process.stderr.write(`\nRegister the MCP server — ready-to-paste one-liner:\n`);
+  process.stderr.write(`  ${result.mcpAddLine}\n`);
+  process.stderr.write(`\n.mcp.json snippet (generic MCP-client shape):\n`);
+  for (const line of result.mcpJsonSnippet.split("\n")) process.stderr.write(`  ${line}\n`);
+
   process.stderr.write(`\nNext steps:\n`);
   for (const step of result.nextSteps) process.stderr.write(`  - ${step}\n`);
 }
@@ -65,7 +81,34 @@ function runAllowCommand(argv: readonly string[]): void {
   }
 }
 
-async function serve(): Promise<void> {
+/**
+ * Read the `--env-file <path>` flag off the serve argv (everything after the bin name). Returns the
+ * given path, or undefined if the flag is absent.
+ */
+function envFileArg(argv: readonly string[]): string | undefined {
+  const i = argv.indexOf("--env-file");
+  if (i >= 0) {
+    const val = argv[i + 1];
+    if (val !== undefined && !val.startsWith("--")) return val;
+  }
+  return undefined;
+}
+
+/**
+ * Load a `.env` into `process.env` before assembling config: an explicit `--env-file <path>`, else an
+ * auto-detected `./.env` in the cwd. A missing file is silently skipped (auto or explicit). Only a
+ * count — never a value — is written to stderr (stdout is the MCP channel).
+ */
+function loadServeEnv(argv: readonly string[]): void {
+  const explicit = envFileArg(argv);
+  const path = explicit ?? "./.env";
+  if (!existsSync(path)) return; // missing file = silently skip
+  const n = loadEnvFile(readFileSync(path, "utf8"), process.env);
+  process.stderr.write(`secretsminter: loaded ${n} vars from ${path}\n`);
+}
+
+async function serve(argv: readonly string[]): Promise<void> {
+  loadServeEnv(argv);
   const config = configFromEnv();
   const { broker, providers, manifestLoaded } = buildBroker(config);
   const serveMode = (process.env["SECRETSMINTER_SERVE"] ?? "stdio").toLowerCase();
@@ -99,7 +142,7 @@ async function main(): Promise<void> {
     runAllowCommand(rest);
     return;
   }
-  await serve();
+  await serve(process.argv.slice(2));
 }
 
 main().catch((err: unknown) => {

@@ -60,21 +60,25 @@ Do not proceed until `npm test` is green. A red suite means the invariants this 
 holding on your machine; setting up live credentials on top of that would be reckless. For the full
 developer loop (`npm run typecheck`, the coverage gate) see [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
+> **From a clone the CLI isn't on your PATH,** so the commands below run it as `node
+> packages/daemon/dist/cli.js` — works cross-platform, no install. Prefer a short `secretsminter`? Run
+> `npm link` once, then drop the prefix. (The `claude mcp add` line `init` prints in §5 always uses an
+> absolute `node …/cli.js`, so registration needs no global install either way.)
+
 ## 3. Scaffold the trust root — `secretsminter init` + `secretsminter allow`
 
 The trust root is a signed manifest (the allow-list) plus its keypair and the approvals/state files. The
 `secretsminter` bin scaffolds all of it so you never hand-sign anything.
 
-> **Honest status:** `init` / `allow` are **[story 0023](stories/0023-init-and-allow-cli.md) — in
-> progress (active, NOT BUILT)** at time of writing. The command surface below is exactly as 0023 specs
-> it. Until 0023 is marked DONE, if a subcommand isn't present in your build, fall back to hand-writing
-> the manifest as shown in older revisions of this guide — but prefer these commands the moment they land.
+> **Honest status:** `init` / `allow` are **shipped** ([story 0023](stories/0023-init-and-allow-cli.md),
+> DONE 2026-08-06). The command surface below is exactly what your build exposes — no hand-writing the
+> manifest.
 
 **Initialize the operator config:**
 
 ```bash
-secretsminter init            # defaults to ./.secretsminter
-# or: secretsminter init --dir /etc/secretsminter
+node packages/daemon/dist/cli.js init            # defaults to ./.secretsminter
+# or: node packages/daemon/dist/cli.js init --dir /etc/secretsminter
 ```
 
 `init` (per 0023):
@@ -92,15 +96,19 @@ secretsminter init            # defaults to ./.secretsminter
 **Keep `manifest.key` out of git.** It is the signing key for your trust root. The repo gitignores
 `.secretsminter-local/`; add your chosen `--dir` (e.g. `.secretsminter/`) to `.gitignore` as well.
 
-The env vars `init` prints point into the dir — export them (or fold them into your `.env`, section 5):
+**You do not need to export these by hand.** `init` now **writes the `SECRETSMINTER_*` pointers into
+`<dir>/.env`** for you (absolute paths), and the daemon loads them via `--env-file <dir>/.env` at
+launch (section 5) — that printed `.env` is the primary path. Manual exporting is optional. For
+reference, these are the pointers `init` writes into the file (into `./.secretsminter/.env`):
 
 ```bash
-export SECRETSMINTER_MANIFEST=./.secretsminter/manifest.json
-export SECRETSMINTER_MANIFEST_SIG=./.secretsminter/manifest.sig
-export SECRETSMINTER_MANIFEST_PUBKEY=./.secretsminter/manifest.pub
-export SECRETSMINTER_APPROVALS=./.secretsminter/approvals.json
-export SECRETSMINTER_STATE=./.secretsminter/state.json
-export SECRETSMINTER_AUDIT_LOG=./.secretsminter/secretsminter.log
+# already written into <dir>/.env by init — shown for reference, not to run
+SECRETSMINTER_MANIFEST=./.secretsminter/manifest.json
+SECRETSMINTER_MANIFEST_SIG=./.secretsminter/manifest.sig
+SECRETSMINTER_MANIFEST_PUBKEY=./.secretsminter/manifest.pub
+SECRETSMINTER_APPROVALS=./.secretsminter/approvals.json
+SECRETSMINTER_STATE=./.secretsminter/state.json
+SECRETSMINTER_AUDIT_LOG=./.secretsminter/audit.log
 ```
 
 **Add each destination you want** with `secretsminter allow …`. It appends one entry and **re-signs** the
@@ -109,10 +117,10 @@ GitHub Actions secret:
 
 ```bash
 # a Cloudflare Pages production env var on project "your-site"
-secretsminter allow --store cloudflare-pages --project your-site --env production --name "R2_*"
+node packages/daemon/dist/cli.js allow --store cloudflare-pages --project your-site --env production --name "R2_*"
 
 # a GitHub Actions secret on repo "your-org/your-app"
-secretsminter allow --store github-actions --repo your-org/your-app --name "R2_*"
+node packages/daemon/dist/cli.js allow --store github-actions --repo your-org/your-app --name "R2_*"
 ```
 
 `allow` maps `--name` to `namePattern`, omits absent fields, rejects an unknown `--store`, and errors
@@ -165,37 +173,130 @@ SECRETSMINTER_PAGES_REDEPLOY_GH_TOKEN=<actions:write token — prefer an App ins
 
 ## 5. Register the MCP server
 
-Point your MCP client at the **`secretsminter` daemon bin** with the environment from `init` (the
-manifest/approvals/state paths) plus the provider bootstraps from section 4. Running the `secretsminter`
-bin **with no subcommand** serves the MCP (and runs the rotation loop); `init` / `allow` run and exit.
+You do **not** hand-roll a launcher. Put every value from sections 3 and 4 into one git-ignored `.env`
+in your `--dir`, then point your MCP client at the **`secretsminter` daemon bin** with `--env-file`
+pointed at that file. `secretsminter init` **prints the exact registration** for you — the two blocks
+below are what it emits, with the absolute paths from your `--dir` already filled in. Running the
+`secretsminter` bin **with no subcommand** serves the MCP (and runs the rotation loop); `init` / `allow`
+run and exit.
+
+**First, finish the `.env`.** `init` already **wrote the `SECRETSMINTER_MANIFEST*` / `_APPROVALS` /
+`_STATE` / `_AUDIT_LOG` pointers into `<dir>/.env`** for you (section 3) — so you only need to add the
+provider bootstraps from section 4 to that same file — e.g. `./.secretsminter/.env`:
+
+```bash
+# ./.secretsminter/.env  — git-ignored; loaded by the daemon via --env-file. NEVER commit this.
+# --- trust root: these lines were ALREADY written by `init` (shown here so you see the whole file) ---
+SECRETSMINTER_MANIFEST=./.secretsminter/manifest.json
+SECRETSMINTER_MANIFEST_SIG=./.secretsminter/manifest.sig
+SECRETSMINTER_MANIFEST_PUBKEY=./.secretsminter/manifest.pub
+SECRETSMINTER_APPROVALS=./.secretsminter/approvals.json
+SECRETSMINTER_STATE=./.secretsminter/state.json
+SECRETSMINTER_AUDIT_LOG=./.secretsminter/audit.log
+# --- provider bootstraps from section 4 — ADD THESE (set only what you use; values enter HERE, never in chat) ---
+# SECRETSMINTER_CF_ACCOUNT_ID=... ; SECRETSMINTER_CF_BUCKET=... ; SECRETSMINTER_CF_API_TOKEN=... ; SECRETSMINTER_CF_PARENT_ACCESS_KEY_ID=...
+# SECRETSMINTER_GH_APP_ID=... ; SECRETSMINTER_GH_INSTALLATION_ID=... ; SECRETSMINTER_GH_PRIVATE_KEY="-----BEGIN...\n...\n-----END..."
+# SECRETSMINTER_SB_PROJECT_REF=... ; SECRETSMINTER_SB_PAT=...
+```
+
+The daemon reads `--env-file` and sets each `KEY=VALUE` into the environment **only if not already set**
+(a real env var always wins), so the same `.env` works whether you launch by hand, from your MCP client,
+or from a secret manager that pre-populates the environment.
+
+**Option A — `claude mcp add` (what `init` prints).** Paste the exact `claude mcp add` line `init`
+printed; one copy-paste line, everything else comes from the `.env`:
+
+```bash
+claude mcp add secretsminter -- node /ABS/PATH/packages/daemon/dist/cli.js --env-file /ABS/PATH/.secretsminter/.env
+```
+
+It uses an **absolute `node …/cli.js`, so it needs no global install** — it resolves from a fresh clone.
+`init` fills in the absolute paths from your `--dir` and the repo; use them verbatim — your MCP client's
+working directory is not your shell's.
+
+**Option B — `.mcp.json` snippet (generic MCP-client shape).** Any stdio MCP client takes this shape.
+Either keep `--env-file` in `args` (simplest), or spell the pointers out in an `env` block — both are
+equivalent:
 
 ```jsonc
-// MCP client config (e.g. Claude Code) — stdio transport
+// .mcp.json — stdio transport. Point every SECRETSMINTER_* path into your --dir.
 {
   "mcpServers": {
     "secretsminter": {
-      "command": "secretsminter",
+      "command": "node",
+      "args": ["/ABS/PATH/packages/daemon/dist/cli.js", "--env-file", "/ABS/PATH/.secretsminter/.env"],
       "env": {
-        "SECRETSMINTER_MANIFEST": "/etc/secretsminter/manifest.json",
-        "SECRETSMINTER_MANIFEST_SIG": "/etc/secretsminter/manifest.sig",
-        "SECRETSMINTER_MANIFEST_PUBKEY": "/etc/secretsminter/manifest.pub",
-        "SECRETSMINTER_APPROVALS": "/var/lib/secretsminter/approvals.json",
-        "SECRETSMINTER_STATE": "/var/lib/secretsminter/state.json",
-        "SECRETSMINTER_AUDIT_LOG": "/var/lib/secretsminter/secretsminter.log"
-        // + the provider bootstraps from section 4, injected from the environment / a secret manager
+        // Optional: instead of (or alongside) --env-file, point the trust-root paths in directly.
+        // A value set here wins over the same key in the .env.
+        "SECRETSMINTER_MANIFEST": "/ABS/PATH/.secretsminter/manifest.json",
+        "SECRETSMINTER_MANIFEST_SIG": "/ABS/PATH/.secretsminter/manifest.sig",
+        "SECRETSMINTER_MANIFEST_PUBKEY": "/ABS/PATH/.secretsminter/manifest.pub",
+        "SECRETSMINTER_APPROVALS": "/ABS/PATH/.secretsminter/approvals.json",
+        "SECRETSMINTER_STATE": "/ABS/PATH/.secretsminter/state.json",
+        "SECRETSMINTER_AUDIT_LOG": "/ABS/PATH/.secretsminter/secretsminter.log"
+        // Provider bootstraps still come from the --env-file (keep secret values out of a committed .mcp.json).
       }
     }
   }
 }
 ```
 
+> **Keep secret values in the `.env`, not in `.mcp.json`.** A `.mcp.json` is often committed; the `.env`
+> is git-ignored. Point at the bootstraps via `--env-file`; never paste a provider token into the JSON.
+
+> ### RELOAD YOUR MCP CLIENT — this is the step everyone forgets
+> An MCP client loads its servers **at startup**. Adding the server does **nothing** until you
+> **reload/restart the client** (in Claude Code: restart the session, or re-open so it re-reads
+> `.mcp.json`). If the `secretsminter` tools don't appear, you almost certainly skipped this.
+
 Or run it as an always-on container/service so the rotation loop keeps secrets fresh 24/7 (see
 [`README.md`](../README.md#run-your-own-secretsminter-docker); the published image is forthcoming). Either
-way, **a client reload is needed** to connect — reload/restart your MCP client after adding the server.
+way, **the client reload is still required** to connect.
 
 > **Do not point at `secretsminter-mcp`.** That second bin is the demo / no-config server and **refuses
-> every mutation by design** — it exists for exploration, not provisioning. The `secretsminter` daemon is
-> the real server.
+> every mutation by design** — it exists for exploration, not provisioning. The registration above uses
+> the `secretsminter` daemon bin, which is the real server. If mutations are being refused no matter what
+> you approve, check first that you registered `secretsminter`, not `secretsminter-mcp`.
+
+### Troubleshooting — it's not connecting
+
+Two diagnostics tell you almost everything: the read-only **`status` tool** (once the server is
+connected) and the **daemon's stderr banner** (printed at startup — visible in your MCP client's server
+logs). The banner looks like:
+
+```
+secretsminter daemon — providers: [cloudflare, github], manifest: verified, rotation every 3600000ms, serve: stdio
+```
+
+Work down this list:
+
+- **The server isn't listed / won't start** → the `command` or path is wrong. Confirm both paths in the
+  registration are **absolute** and readable by the client: the `node /ABS/PATH/packages/daemon/dist/cli.js`
+  path (built by `npm run build`) and the `--env-file /ABS/PATH/.secretsminter/.env` path. Re-check the
+  exact line `init` printed — it uses an absolute `node …/cli.js`, so no global install or `PATH` entry is
+  needed. (If you ran `npm link` and registered the short `secretsminter` bin instead, confirm it's on `PATH`.)
+- **The server is listed but the tools don't appear** → you didn't reload. Restart the MCP client so it
+  re-reads its config (see the loud note above). This is the single most common cause.
+- **Banner says `manifest: EMPTY (nothing can be placed until configured)`** → the daemon didn't load a
+  signed manifest. Either the `SECRETSMINTER_MANIFEST` / `_MANIFEST_SIG` / `_MANIFEST_PUBKEY` paths aren't
+  set (or point at the wrong dir), or you never ran `secretsminter allow` to add a destination. Re-run
+  section 3, then reload. With an empty manifest every placement is refused, default-deny.
+- **A provider you expected is missing from the `providers: [...]` list** → its bootstrap env isn't set,
+  so the daemon skipped it (a provider whose bootstrap isn't configured is silently skipped by design).
+  Set that provider's `SECRETSMINTER_*` vars in the `.env` (Cloudflare: `SECRETSMINTER_CF_ACCOUNT_ID`,
+  `SECRETSMINTER_CF_BUCKET`, `SECRETSMINTER_CF_API_TOKEN`, `SECRETSMINTER_CF_PARENT_ACCESS_KEY_ID`;
+  GitHub App: `SECRETSMINTER_GH_APP_ID`, `SECRETSMINTER_GH_INSTALLATION_ID`, `SECRETSMINTER_GH_PRIVATE_KEY`;
+  Supabase: `SECRETSMINTER_SB_PROJECT_REF`, `SECRETSMINTER_SB_PAT`) and reload.
+- **`mint_and_place` returns denied** → one of the two gates fired. Either **no out-of-band approval is
+  armed** for that exact action (approval is a separate, human/out-of-band step — you cannot self-approve;
+  see section 6), or **the destination isn't on the signed allow-list** (run `plan` first — it dry-runs
+  the manifest check and names the miss; then `secretsminter allow` the destination, out-of-band). This is
+  the trust root working as designed, not a bug — see [`SECURITY.md`](../SECURITY.md) and
+  [`AI_REVIEW.md`](../AI_REVIEW.md) → "What 'at risk' means here."
+
+When in doubt: call `status` (it confirms the broker loaded and **verified** the signed manifest and that
+the kill switch isn't engaged), and read the stderr banner. Between them they distinguish "not connected"
+from "connected but default-deny."
 
 ## 6. First run through the tools
 

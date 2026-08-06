@@ -75,6 +75,79 @@ describe("runInit", () => {
     expect(envExports).toHaveLength(6);
   });
 
+  it("emits a ready-to-paste 'claude mcp add' line and a .mcp.json snippet with the dir's manifest path", () => {
+    const fs = memFs();
+    const p = dirPaths(DIR);
+    const { mcpAddLine, mcpJsonSnippet, envFile } = runInit(fs, DIR);
+
+    // The one-liner points --env-file at the dir's .env.
+    expect(mcpAddLine).toBe(`claude mcp add secretsminter -- secretsminter --env-file ${p.env}`);
+    expect(envFile).toBe(p.env);
+
+    // The .mcp.json snippet is valid JSON with the generic MCP-client shape, pointed into the dir.
+    const parsed = JSON.parse(mcpJsonSnippet);
+    const server = parsed.mcpServers.secretsminter;
+    expect(server.command).toBe("secretsminter");
+    expect(server.args).toEqual(["--env-file", p.env]);
+    expect(server.env.SECRETSMINTER_MANIFEST).toBe(p.manifest);
+    expect(server.env.SECRETSMINTER_APPROVALS).toBe(p.approvals);
+  });
+
+  it("emits a resolvable `node <cli>` serve command when given one (so a fresh clone needs no global install)", () => {
+    const fs = memFs();
+    const p = dirPaths(DIR);
+    const cli = "/repo/packages/daemon/dist/cli.js";
+    const { mcpAddLine, mcpJsonSnippet } = runInit(fs, DIR, { command: "node", baseArgs: [cli] });
+
+    expect(mcpAddLine).toBe(`claude mcp add secretsminter -- node ${cli} --env-file ${p.env}`);
+    const server = JSON.parse(mcpJsonSnippet).mcpServers.secretsminter;
+    expect(server.command).toBe("node");
+    expect(server.args).toEqual([cli, "--env-file", p.env]);
+  });
+
+  it("quotes serve args that contain spaces (Windows paths)", () => {
+    const fs = memFs();
+    const cli = "/Program Files/sm/cli.js";
+    const { mcpAddLine } = runInit(fs, DIR, { command: "node", baseArgs: [cli] });
+    expect(mcpAddLine).toContain(`node "${cli}"`);
+  });
+
+  it("writes the SECRETSMINTER_* config lines into <dir>/.env when none exists", () => {
+    const fs = memFs();
+    const p = dirPaths(DIR);
+    runInit(fs, DIR);
+
+    const env = fs.files.get(p.env) as string;
+    expect(env).toBeTypeOf("string");
+    expect(env).toContain(`SECRETSMINTER_MANIFEST=${p.manifest}`);
+    expect(env).toContain(`SECRETSMINTER_MANIFEST_SIG=${p.sig}`);
+    expect(env).toContain(`SECRETSMINTER_MANIFEST_PUBKEY=${p.pub}`);
+    expect(env).toContain(`SECRETSMINTER_APPROVALS=${p.approvals}`);
+    expect(env).toContain(`SECRETSMINTER_STATE=${p.state}`);
+    expect(env).toContain(`SECRETSMINTER_AUDIT_LOG=${p.audit}`);
+    // The signing key is never written into the .env.
+    expect(env).not.toContain("SECRETSMINTER_MANIFEST_KEY");
+    expect(env).not.toContain(p.key);
+  });
+
+  it("does NOT clobber an existing .env — appends only the missing SECRETSMINTER_* lines", () => {
+    const p = dirPaths(DIR);
+    // Operator already put a provider bootstrap + one manifest path in place.
+    const preexisting =
+      "SECRETSMINTER_CF_ACCOUNT_ID=acct-123\n" + `SECRETSMINTER_MANIFEST=${p.manifest}\n`;
+    const fs = memFs({ [p.env]: preexisting });
+    runInit(fs, DIR);
+
+    const env = fs.files.get(p.env) as string;
+    // Provider cred preserved untouched.
+    expect(env).toContain("SECRETSMINTER_CF_ACCOUNT_ID=acct-123");
+    // The already-present manifest line is not duplicated.
+    expect(env.match(/SECRETSMINTER_MANIFEST=/g)).toHaveLength(1);
+    // The missing lines were appended.
+    expect(env).toContain(`SECRETSMINTER_APPROVALS=${p.approvals}`);
+    expect(env).toContain(`SECRETSMINTER_STATE=${p.state}`);
+  });
+
   it("REFUSES to clobber an existing signing key (non-zero via thrown SetupError)", () => {
     const p = dirPaths(DIR);
     const fs = memFs({ [p.key]: "-----BEGIN PRIVATE KEY-----\nexisting\n-----END PRIVATE KEY-----\n" });

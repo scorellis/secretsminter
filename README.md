@@ -23,6 +23,42 @@ they're consumed, and wire their recurring rotation — over the **Model Context
 > manifest → provide ephemeral-first bootstraps → register the MCP server → first `plan` / approved
 > `mint_and_place`.
 
+## Quickstart (≈60 seconds)
+
+The copy-paste happy path from a clean clone to your agent running its first (dry-run) `plan`. No
+hand-rolled launcher — `secretsminter init` prints the exact registration line. Examples are generic;
+substitute your own org/project (`your-org`, `example-web`, `acme`).
+
+```bash
+# 1. Clone + build (green is the gate).
+git clone https://github.com/scorellis/secretsminter && cd secretsminter
+npm ci && npm run build
+
+# 2. Scaffold the trust root: an Ed25519 keypair + a signed, empty (default-deny) manifest.
+#    Writes the SECRETSMINTER_* paths into ./.secretsminter/.env AND prints the `claude mcp add` line for step 5.
+node packages/daemon/dist/cli.js init --dir ./.secretsminter
+
+# 3. Allow one destination (re-signs the manifest). Nothing off this list can ever be placed.
+node packages/daemon/dist/cli.js allow --dir ./.secretsminter \
+  --store cloudflare-pages --project example-web --env production --name "R2_*"
+
+# 4. Add your provider bootstraps to ./.secretsminter/.env (init already wrote the SECRETSMINTER_* paths
+#    there; git-ignored — secret VALUES enter here, never in the agent chat). See docs/USING.md §4.
+
+# 5. Register the server with your MCP client (paste the exact line `init` printed):
+claude mcp add secretsminter -- node /ABS/PATH/packages/daemon/dist/cli.js --env-file /ABS/PATH/.secretsminter/.env
+```
+
+> **From a clone the CLI isn't on your PATH,** so commands use `node packages/daemon/dist/cli.js`. Prefer
+> a short `secretsminter`? Run `npm link` once, then drop the prefix. The `claude mcp add` line `init`
+> prints uses an absolute `node …/cli.js`, so registration needs no global install regardless.
+
+**6. Reload/restart your MCP client** — servers load at startup, so it will not connect until you do.
+**7. Ask your agent to run `plan`** for the destination you allow-listed — a dry-run that mints nothing
+and confirms the manifest check. Full walkthrough, per-provider bootstraps, and troubleshooting:
+[`docs/USING.md`](docs/USING.md) (§5 covers registration + "it's not connecting"). Point at the
+`secretsminter` daemon bin, **not** the demo `secretsminter-mcp`, which refuses every mutation by design.
+
 > Philosophy: **builders, not maintainers.** The acceptance test for every feature is *"does it
 > eliminate ongoing maintenance, or create it?"* A rotation that needs a human or an AI to *remember*
 > to run it has already failed. secretsminter's job is to stand the loop up once and let it run itself.
