@@ -29,6 +29,7 @@ tested code behind it; everything else says `NOT BUILT`. A capability is never c
 | [0022](0022-secretclass-app-secret.md) | A `SecretClass` for symmetric app/HMAC secrets (retire the `api-token` stopgap) | **DONE 2026-08-06 — `app-secret` class added + MCP enum + local provider relabeled + rotatable-by-class tested** |
 | [0023](0023-init-and-allow-cli.md) | `secretsminter init` + `allow` — first-run manifest scaffolding (keypair, sign, add-destination-and-re-sign) | **DONE 2026-08-06 — init + allow subcommands; `signManifest`/`STORE_IDS` in core; self-verify; 14 tests** |
 | [0024](0024-onboarding-guide.md) | Onboarding guide (`docs/USING.md`) — the "read this repo and set me up" flow, ephemeral-first | **DONE 2026-08-06 — AI-followable clone-to-first-mint guide + README pointer; env-var names code-verified** |
+| [0025](0025-turnkey-mcp-setup.md) | Turnkey MCP setup — daemon `.env` loading + `init` emits the `claude mcp add`/`.mcp.json` registration; crystal-clear deploy docs + troubleshooting | **DONE 2026-08-06 — resolvable `node <cli.js>` registration (no global install); docs verified by following them literally; 233 tests** |
 
 **Roadmap:** every control that can be built without live credentials is now **done** — the MCP server
 serves (0002), the signed manifest + allow-list are enforced (0006), the out-of-band approval + fail-
