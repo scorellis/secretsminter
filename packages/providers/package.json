@@ -1,0 +1,26 @@
+{
+  "name": "@secretsminter/providers",
+  "version": "0.1.0",
+  "description": "Cloudflare / GitHub / Supabase provider plugins. Every provider has a real network path; live-run status varies per story (Cloudflare live-verified; GitHub/Supabase unit-tested against fakes, not yet live-run).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@secretsminter/core": "0.1.0",
+    "aws4fetch": "^1.0.20",
+    "libsodium-wrappers": "^0.7.13"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@secretsminter/mcp",
+  "version": "0.1.0",
+  "description": "The agent-facing MCP server. Holds NO master keys (two-tier isolation); validates + requests actions from @secretsminter/core. Tool catalog is defined; live serving lands in P1.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "secretsminter-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@secretsminter/core": "0.1.0",
+    "zod": "^3.23.0"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  }
+}

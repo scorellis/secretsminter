@@ -1,0 +1,31 @@
+{
+  "name": "secretsminter-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A value-blind secrets-minter that stands up self-maintaining secret rotation, exposed to AI agents over MCP.",
+  "license": "Apache-2.0",
+  "author": "Scott Corellis",
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/providers",
+    "packages/mcp",
+    "packages/daemon"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --build --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

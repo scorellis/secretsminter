@@ -1,0 +1,27 @@
+{
+  "name": "@secretsminter/daemon",
+  "version": "0.1.0",
+  "description": "The composition root: assembles the broker (core) with providers, stores, durable state, kill switch, approval, sinks, and the rotation loop from config — the deployable service you run to stand up your own secretsminter.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "secretsminter": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@secretsminter/core": "0.1.0",
+    "@secretsminter/mcp": "0.1.0",
+    "@secretsminter/providers": "0.1.0"
+  },
+  "scripts": {
+    "build": "tsc --build"
+  }
+}

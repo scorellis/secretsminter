@@ -1,0 +1,8 @@
+secretsminter
+Copyright 2026 Scott Corellis
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+secretsminter is a value-blind secrets-minter exposed to AI agents over the Model
+Context Protocol. It mints, places, and rotates cloud credentials without ever
+returning a secret value to the calling agent.

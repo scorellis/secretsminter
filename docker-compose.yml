@@ -1,0 +1,21 @@
+# Run your own secretsminter broker as an always-on service.
+#   1. Put your bootstraps + config in a git-ignored `.env` (see docs/USING.md).
+#   2. `docker compose up -d`
+# It runs the rotation loop persistently; state survives restarts on the named volume.
+services:
+  secretsminter:
+    build: .
+    image: secretsminter
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Loop-only persistent service. To talk to the MCP tools, run interactively instead:
+      #   docker run -i --rm --env-file .env secretsminter
+      SECRETSMINTER_SERVE: loop
+      SECRETSMINTER_STATE: /var/lib/secretsminter/state.json
+      SECRETSMINTER_ALERT_LOG: /var/lib/secretsminter/secretsminter.log
+    volumes:
+      - secretsminter-state:/var/lib/secretsminter
+
+volumes:
+  secretsminter-state:
