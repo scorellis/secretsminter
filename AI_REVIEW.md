@@ -76,6 +76,55 @@ Defend against it before you touch a live `.env`:
 - If a secret *does* land in a session transcript, treat it as **exposed** and rotate it. A deny rule
   stops the next leak; it cannot un-expose one that already happened.
 
+## Running it safely — where your secrets must (and must NOT) live
+
+secretsminter handles live credentials, so *how you store the bootstrap creds it needs* matters as much
+as the code. If you (or your AI) are setting this up, these are not optional:
+
+1. **NEVER, EVER commit a secret to this repository — or any repository.** No credential value belongs in
+   a tracked file, a commit, a pull request, a branch, a log line, or a `.env` that isn't git-ignored. If
+   your agent is about to write a secret where `git` can see it, stop it. secretsminter is pointed at
+   secrets through the **environment**, never through source. (Value-blindness is this same discipline
+   inside the tool — apply it to how you *operate* the tool.)
+
+2. **Keep bootstrap creds in a secret manager — NOT on your local disk. Not ever.** The one-time bootstrap
+   credentials secretsminter needs (a Cloudflare token, a GitHub App key, a Supabase PAT) belong in a
+   **secret manager** — **GitHub Actions secrets**, your cloud's secret store, a vault — and get **injected
+   into secretsminter's runtime as environment variables**. A local `.env` full of bootstrap creds is a
+   get-started convenience *only*; the moment you're past first-run, get them off your machine. Secrets on
+   a laptop leak — backups, cloud sync, an AI-enabled editor (see the trap above) — while secrets in a
+   manager are access-controlled, audited, and never a file someone can open. **Run secretsminter where the
+   secrets already are** (a CI job, a container that injects them at runtime) rather than on a workstation
+   holding a `.env`.
+
+3. **Ephemeral-first: don't store what you can mint on demand.** Where a vendor supports short-lived
+   credentials (Cloudflare R2 Temporary Credentials, GitHub App installation tokens), prefer them — they
+   self-expire, so there is nothing standing to store *or* rotate. The safest secret is the one that no
+   longer exists five minutes from now.
+
+**Other things worth knowing if you're trying the minter:**
+
+4. **Start read-only.** Drive `status` / `list_secrets`, then `plan` (a dry-run by default) — see what
+   *would* happen before anything mutates. `mint_and_place` is the only tool that changes the world, and
+   it is approval-gated.
+
+5. **The signed manifest is the trust root — respect it.** Nothing is placed anywhere except a destination
+   on the signed allow-list. Adding a destination is a deliberate, out-of-band, human-approved change to
+   the manifest — never something the agent does from its own chat. The urge to have the agent "just add a
+   destination" is the exact moment the allow-list is protecting you.
+
+6. **Approval + kill switch are out-of-band by design.** They are not MCP tools; a prompt-injected agent
+   cannot self-approve or disable them. Don't "helpfully" wire them into the agent surface — that defeats
+   the containment.
+
+7. **Rotate the crown jewels yourself, out-of-band.** secretsminter refuses to rotate its own bootstrap
+   creds (a self-lockout guard). Those you rotate on your own cadence, from the vendor account down —
+   everything *below* them, secretsminter keeps fresh for you.
+
+8. **If a secret ever lands where it shouldn't** — a transcript, a log, a commit — **treat it as exposed
+   and rotate it.** Hygiene and deny-rules stop the *next* leak; they cannot un-expose one that already
+   happened.
+
 ## How to report a security concern
 
 - For a **non-sensitive** issue (a confusing doc, a design question, a hardening idea), open a normal
